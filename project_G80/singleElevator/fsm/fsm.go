@@ -1,18 +1,19 @@
 package fsm
 
 import (
+	"fmt"
 	"time"
 
+	requests "project/requests"
+	elevio "project/singleElevator/fsm/elevio"
 	"project/types"
-	"project/singleElevator/fsm/elevio"
-	"project/requests"
 )
 
 var elev types.Elevator
 
 //sjekk første funksjon i fsm: func fsm_init
 
-func setAllLights(){
+func SetAllLights(){
 	for floor := 0; floor < types.NUM_FLOORS; floor++ {
 		for btn := 0; btn < types.NUM_BUTTONS; btn++{
 			elevio.SetButtonLamp(types.ButtonType(btn), floor, elev.Requests[floor][btn])
@@ -20,37 +21,55 @@ func setAllLights(){
 	}
 }
 
-func timerDoor(isTimedOut chan <- bool){
-	for{
-		time.Sleep(time.Duration(3 * time.Second))
+func TimerDoor(timedOut chan<- bool){
+	for {
+		time.Sleep((time.Duration(3*time.Second)))
 		if !elev.Obstruction{
 			break
-		} 
+		}
 	}
-	isTimedOut <- true	
+
+	timedOut <- true
 }
 
-func openDoor(isTimedOut chan<- bool){
+func OpenDoor(timedOut chan<- bool){
 	elevio.SetDoorOpenLamp(true)
-	go timerDoor(isTimedOut)
 	elev.Behaviour = types.EB_DoorOpen
+	go TimerDoor(timedOut)
+	
 }
 
 
-func fsm_onInitBetweenFloors(){
+func Fsm_onInitBetweenFloors(){
+	elevio.SetDoorOpenLamp(false)
 	elevio.SetMotorDirection(types.MD_Down)
 	elev.Dirn = types.MD_Down
 	elev.Behaviour = types.EB_Moving
-	setAllLights()	
+	SetAllLights()
+	a := -5
+
+	for a != 0{
+		a = elevio.GetFloor()
+	}
+	elevio.SetMotorDirection(types.MD_Stop)
+
+	elev.Dirn = types.MD_Stop
+	elev.Behaviour = types.EB_Idle
+	fmt.Println("ss")
 }
 
-func fsm_onRequestButtonPress(btn_floor int, btn_type types.ButtonType, isTimedOut chan<- bool ){
-	//print(elevator)?
+func Fsm_onRequestButtonPress(btn_floor int, btn_type types.ButtonType, timedOut chan<- bool){
+	fmt.Println(elev.Behaviour)
+	fmt.Println(elev.Floor)
+	fmt.Println(elev.Dirn)
+
+	
 	
 	switch elev.Behaviour{
 	case types.EB_DoorOpen:
 		if elev.Floor == btn_floor{
-			go timerDoor(isTimedOut)
+			OpenDoor(timedOut)
+
 		} else {
 			elev.Requests[btn_floor][btn_type] = true
 		}
@@ -62,44 +81,46 @@ func fsm_onRequestButtonPress(btn_floor int, btn_type types.ButtonType, isTimedO
 	
 	case types.EB_Idle:
 		if elev.Floor == btn_floor{
-			openDoor(isTimedOut)
+			OpenDoor(timedOut)
 		} else {
 			elev.Requests[btn_floor][btn_type] = true
-			elev.Dirn = requests_chooseDirection(elev)
+			elev.Dirn = requests.Requests_nextAction(elev)
 			elevio.SetMotorDirection(elev.Dirn)
 			elev.Behaviour = types.EB_Moving
 		}
 		break
 	}
-	setAllLights()
+	SetAllLights()
 	//print new state
 }
 
-func fsm_onFloorArrival(newFloor int, isTimedOut chan<- bool, elevOrderCompleted chan<- types.ButtonEvent) {
+func Fsm_onFloorArrival(newFloor int, timedOut chan<- bool) {
 	elev.Floor = newFloor
 
 	elevio.SetFloorIndicator(elev.Floor)
 
 	switch elev.Behaviour {
 	case types.EB_Moving:
-		if requests_shouldStop(elev) {
-			elev = requests_clearAtCurrentFloor(elev, elevOrderCompleted)
+		if requests.Requests_shouldStop(elev) {
+			elev = requests.Requests_clearAtCurrentFloor(elev)
 			elevio.SetMotorDirection(types.MD_Stop)
-			openDoor(isTimedOut)
+			OpenDoor(timedOut)
 		}
 		break
 	default:
+		fmt.Println("Floor arrival break")
 		break
 	}
+	SetAllLights()
 
 	//print new state
 }
 
-func fsm_onDoorTimeout(elevOrderCompleted chan<- types.ButtonEvent) {
+func Fsm_onDoorTimeout() {
 	switch elev.Behaviour {
 	case types.EB_DoorOpen:
-		elev.Dirn = requests_chooseDirection(elev)
-		elev = requests_clearAtCurrentFloor(elev, elevOrderCompleted)
+		elev.Dirn = requests.Requests_nextAction(elev)
+		elev = requests.Requests_clearAtCurrentFloor(elev)
 		elevio.SetDoorOpenLamp(false)
 		elevio.SetMotorDirection(elev.Dirn)
 
@@ -117,5 +138,7 @@ func fsm_onDoorTimeout(elevOrderCompleted chan<- types.ButtonEvent) {
 }
 
 func Fsm_onObstructionSwitch(obstructionEvent bool){
-	elev.Obstruction = obstructionEvent
+		elev.Obstruction = obstructionEvent
+
 }
+

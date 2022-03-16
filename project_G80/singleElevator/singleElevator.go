@@ -3,50 +3,44 @@ package singleElevator
 //main for single elevator
 
 import (
-	"time"
+	"fmt"
+	//"time"
 
-	"project/types"
 	"project/singleElevator/fsm"
 	"project/singleElevator/fsm/elevio"
+	"project/types"
 )
 
-func SingleElevator(
-	simulatorPort string,
-	elevLight <-chan types.LightEvent,
-	elevOrderIn <-chan types.ButtonEvent,
-	elevCostReqIn <-chan types.Order,
-	elevOrderCompleted chan<- types.ButtonEvent,
-	elevCostReqOut chan<- types.Cost,  
-	elevObstruction chan<- bool, 
-	elevTimeOfFloorEvent chan<- time.Time) {
-
-	elevio.Init("localhost:"+simulatorPort, types.NUM_FLOORS)
-
+func SingleElevator(simulatorPort string) {
+	
 	drv_floors := make(chan int)
 	drv_obstr := make(chan bool)
-	timeout := make(chan bool)
-
+	drv_buttons := make(chan types.ButtonEvent)
+	drv_timer := make(chan bool)
+	
 	go elevio.PollFloorSensor(drv_floors)
 	go elevio.PollObstructionSwitch(drv_obstr)
+	go elevio.PollButtons(drv_buttons)
 
-	fsm.fsm_onInitBetweenFloors()
-
+	
+	fmt.Println("sas")
 	for {
 		select {
-		case buttonEvent := <-elevOrderIn:
-			fsm.fsm_onRequestButtonPress(buttonEvent.Floor, buttonEvent.Button, timeout)
+		case buttonEvent := <-drv_buttons:
+			fmt.Println("knap trykt")
+			fsm.Fsm_onRequestButtonPress(buttonEvent.Floor, buttonEvent.Button, drv_timer)
 		case floor := <-drv_floors:
-			elevTimeOfFloorEvent <- time.Now()
-			fsm.fsm_onFloorArrival(floor, timeout, elevOrderCompleted)
-		case <-timeout:
-			fsm.fsm_onDoorTimeout(elevOrderCompleted)
+		//	elevTimeOfFloorEvent := time.Now()
+			fsm.Fsm_onFloorArrival(floor, drv_timer)
+		case <-drv_timer:
+			fsm.Fsm_onDoorTimeout()
 		//case buttonEvent := <-elevCostReqIn:
 		//	go elevator.CostCalculation(buttonEvent, elevCostReqOut)
-		case lightEvent := <-elevLight:
-			elevio.SetButtonLamp(lightEvent.Light.Button, lightEvent.Light.Floor, lightEvent.Switch)
+		//case lightEvent := <-elevLight:
+		//	elevio.SetButtonLamp(lightEvent.Light.Button, lightEvent.Light.Floor, lightEvent.Switch)
 		case obstructionEvent := <- drv_obstr:
 			fsm.Fsm_onObstructionSwitch(obstructionEvent)
-			elevObstruction <- obstructionEvent
 		}
+		fmt.Println("www")
 	}
 }
